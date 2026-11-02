@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KMP, step by step</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF2F0; --panel:#FFFFFF; --ink:#13262B; --dim:#5B6F73; --line:#C9D6D3; --cell:#E3EBE9;
+  --ok:#0E8F6E; --okbg:#CFF1E6; --bad:#D2394B; --badbg:#FADADF; --ptr:#946A00; --ptrbg:#FBEDBF;
+  --step:42px; --cw:38px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F2227; --panel:#16303A; --ink:#EAF0EC; --dim:#8EA6A8; --line:#2A4650; --cell:#1D3A45;
+    --ok:#5FD4B2; --okbg:#1B4B44; --bad:#FF7A89; --badbg:#5A2A35; --ptr:#F4C95D; --ptrbg:#5B4A1C;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F2227; --panel:#16303A; --ink:#EAF0EC; --dim:#8EA6A8; --line:#2A4650; --cell:#1D3A45;
+  --ok:#5FD4B2; --okbg:#1B4B44; --bad:#FF7A89; --badbg:#5A2A35; --ptr:#F4C95D; --ptrbg:#5B4A1C;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);
+  font:500 16px/1.5 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:30px;line-height:1.15;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
+.sub{color:var(--dim);margin:0 0 20px;max-width:62ch}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+.inputs{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:16px}
+.inputs label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--dim)}
+.inputs input{font:700 16px "JetBrains Mono",monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);color:var(--ink);text-transform:uppercase;min-width:0}
+#inT{width:min(360px,80vw)} #inP{width:min(200px,60vw)}
+button,select{font:700 14px "Bricolage Grotesque",system-ui,sans-serif;padding:9px 14px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--dim)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--ptr);outline-offset:2px}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:16px;background:var(--panel)}
+.tabs button{border:0;border-radius:0;background:transparent}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 16px}
+.stage{overflow-x:auto;padding-bottom:6px}
+.inner{width:max-content;min-width:100%;padding-bottom:4px}
+.lbl{font-size:13px;color:var(--dim);margin:14px 0 4px}
+.lbl:first-child{margin-top:0}
+.row{display:flex}
+.ix{width:var(--cw);margin-right:4px;text-align:center;font:500 11px "JetBrains Mono",monospace;color:var(--dim)}
+.track{position:relative;height:46px}
+.shift{position:absolute;left:0;top:0;display:flex;transition:transform .55s cubic-bezier(.3,.7,.2,1)}
+.cell{width:var(--cw);height:46px;margin-right:4px;display:grid;place-items:center;border-radius:6px;
+  background:var(--cell);font:700 20px "JetBrains Mono",monospace;position:relative;
+  transition:background .25s,color .25s,box-shadow .25s}
+.cell.ok{background:var(--okbg);color:var(--ok);box-shadow:inset 0 0 0 2px var(--ok)}
+.cell.cur{background:var(--ptrbg);color:var(--ptr);box-shadow:inset 0 0 0 2px var(--ptr)}
+.cell.bad{background:var(--badbg);color:var(--bad);box-shadow:inset 0 0 0 2px var(--bad)}
+.cell.hit::after{content:"";position:absolute;left:0;right:-4px;bottom:-7px;height:4px;background:var(--ok);border-radius:2px}
+.cell.hit:last-child::after{right:0}
+.ftab{display:flex;gap:4px}
+.col{display:flex;flex-direction:column;gap:3px;width:var(--cw);text-align:center}
+.col .a{font:500 11px "JetBrains Mono",monospace;color:var(--dim)}
+.col .b,.col .c{height:34px;display:grid;place-items:center;border-radius:6px;font:700 16px "JetBrains Mono",monospace;
+  background:var(--cell);transition:background .25s,box-shadow .25s}
+.col .c.new{background:var(--okbg);color:var(--ok);box-shadow:inset 0 0 0 2px var(--ok)}
+.col .c.look{background:var(--ptrbg);color:var(--ptr);box-shadow:inset 0 0 0 2px var(--ptr)}
+.col .c.unk{color:var(--dim);font-weight:500}
+.caption{min-height:3.2em;font-size:19px;line-height:1.4;margin:16px 0 4px;max-width:70ch}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.controls input[type=range]{flex:1 1 180px;accent-color:var(--ok)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:16px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel)}
+.stat b{display:block;font:700 26px "JetBrains Mono",monospace}
+.stat span{font-size:13px;color:var(--dim)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--dim);margin-top:14px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.note{margin-top:18px;color:var(--dim);font-size:14px;max-width:75ch}
+@media (prefers-reduced-motion: reduce){.shift,.cell,.col .b,.col .c{transition:none}}
+@media (max-width:520px){h1{font-size:25px}.caption{font-size:17px}}
+</style>
+</head>
+<body>
+<main>
+  <h1>KMP, step by step</h1>
+  <p class="sub">Watch the failure function get built, then watch the search use it. The text pointer never moves backwards.</p>
+
+  <div class="inputs">
+    <label>Text<input id="inT" class="mono" maxlength="60" spellcheck="false" value="ABABDABACDABABCABAB"></label>
+    <label>Pattern<input id="inP" class="mono" maxlength="16" spellcheck="false" value="ABABCABAB"></label>
+    <button id="apply" class="primary">Load strings</button>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabB" aria-selected="true">Build the failure table</button>
+    <button role="tab" id="tabS" aria-selected="false">Search the text</button>
+  </div>
+
+  <section class="card" aria-live="polite">
+    <div class="stage"><div class="inner" id="stage"></div></div>
+    <div class="caption" id="cap"></div>
+    <div class="controls">
+      <button id="bBack">Back</button>
+      <button id="bPlay" class="primary">Play</button>
+      <button id="bStep">Step</button>
+      <button id="bReset">Restart</button>
+      <label class="mono" style="font-size:13px;color:var(--dim)">speed
+        <select id="spd"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option></select>
+      </label>
+      <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Step position">
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--ptr)"></i>being compared</span>
+      <span><i style="background:var(--ok)"></i>matched / known</span>
+      <span><i style="background:var(--bad)"></i>mismatch</span>
+    </div>
+  </section>
+
+  <div class="stats" id="stats"></div>
+  <p class="note">Why it is linear: in the search, i only moves forward (at most n times), and every fall-back of j needs an earlier forward move of j to pay for it, so there are fewer than 2n comparisons. Building F follows the same argument on the pattern, giving O(m). Total O(n + m) time, O(m) extra space.</p>
+</main>
+
+<script>
+(function(){
+const STEP=42;
+const $=s=>document.querySelector(s);
+const S={mode:'build',T:'',P:'',lps:[],steps:[],k:0,timer:null,naive:0,els:{}};
+
+function computeLPS(p){
+  const m=p.length,l=Array(m).fill(0);let len=0,i=1;
+  while(i<m){ if(p[i]===p[len]){l[i]=++len;i++;} else if(len>0){len=l[len-1];} else {l[i]=0;i++;} }
+  return l;
+}
+function naiveCount(t,p){
+  let c=0;for(let s=0;s+p.length<=t.length;s++){for(let k=0;k<p.length;k++){c++;if(t[s+k]!==p[k])break;}}return c;
+}
+
+function genBuild(p){
+  const m=p.length,l=Array(m).fill(0),out=[];let len=0,i=1;
+  const push=o=>out.push(Object.assign({lps:l.slice()},o));
+  push({kind:'init',i:0,len:0,known:1,msg:'F[0] is always 0: a single character has no proper prefix, so there is nothing to overlap.'});
+  while(i<m){
+    push({kind:'cmp',i,len,known:i,msg:`Compare P[${i}]='${p[i]}' with P[${len}]='${p[len]}'. We are asking: can the current border of length ${len} be extended by one character?`});
+    if(p[i]===p[len]){
+      l[i]=len+1;
+      push({kind:'eq',i,len,known:i+1,msg:`Equal. The border grows to length ${len+1}, so F[${i}] = ${len+1}.`});
+      len++;i++;
+    } else if(len>0){
+      push({kind:'mis',i,len,known:i,msg:`Different. Do not restart: the next best border is F[${len-1}] = ${l[len-1]}.`});
+      const nl=l[len-1];len=nl;
+      push({kind:'fall',i,len,known:i,msg:`Slide the copy of the pattern so its first ${len} character${len===1?'':'s'} sit under the suffix. Try the comparison again.`});
+    } else {
+      l[i]=0;
+      push({kind:'zero',i,len,known:i+1,msg:`Different, and no border is left to fall back to, so F[${i}] = 0.`});
+      i++;
+    }
+  }
+  push({kind:'done',i:m-1,len:0,known:m,msg:`Done. F = [${l.join(', ')}]. This took O(m) steps for m = ${m}.`,off:0});
+  return out;
+}
+
+function genSearch(t,p,l){
+  const n=t.length,m=p.length,out=[],hits=[];let i=0,j=0,cnt=0;
+  const push=o=>out.push(Object.assign({hits:hits.slice(),cnt},o));
+  while(i<n){
+    cnt++;
+    push({kind:'cmp',i,j,off:i-j,msg:`Compare T[${i}]='${t[i]}' with P[${j}]='${p[j]}'.`});
+    if(t[i]===p[j]){
+      push({kind:'eq',i,j,off:i-j,msg:`Equal. Move both pointers right.`});
+      i++;j++;
+      if(j===m){
+        hits.push(i-m);
+        push({kind:'found',i,j:m,off:i-m,msg:`Full match: the pattern occurs at index ${i-m}. Use F[${m-1}] = ${l[m-1]} to keep the overlap and continue.`});
+        const nj=l[m-1];j=nj;
+        push({kind:'shift',i,j,off:i-j,look:m-1,msg:`Slide the pattern so its first ${nj} character${nj===1?'':'s'} sit under text we have already read. i stays at ${i}.`});
+      }
+    } else {
+      push({kind:'mis',i,j,off:i-j,msg: j>0
+        ? `Different. ${j} character${j===1?'':'s'} matched, so look up F[${j-1}] = ${l[j-1]}.`
+        : `Different, and nothing matched yet. The pattern simply slides one step.`});
+      if(j>0){
+        const nj=l[j-1];
+        push({kind:'shift',i,j:nj,off:i-nj,look:j-1,msg:`Slide the pattern so ${nj} matched character${nj===1?' stays':'s stay'} aligned. j becomes ${nj}; i stays at ${i}, we never re-read the text.`});
+        j=nj;
+      } else {
+        i++;
+        push({kind:'shift',i,j:0,off:i,msg:`Slide one step. i moves to ${i}.`});
+      }
+    }
+  }
+  const last=out[out.length-1];
+  push({kind:'done',i:n,j:0,off:last?last.off:0,msg:hits.length
+    ? `Done. The pattern occurs at index ${hits.join(', ')}. KMP used ${cnt} comparisons; the naive method needs ${S.naive}.`
+    : `Done. No occurrence found. KMP used ${cnt} comparisons; the naive method needs ${S.naive}.`});
+  return out;
+}
+
+function cellRow(str){
+  const r=document.createElement('div');r.className='shift';
+  const cells=[...str].map(ch=>{const c=document.createElement('div');c.className='cell';c.textContent=ch;r.appendChild(c);return c;});
+  return {r,cells};
+}
+function idxRow(len){
+  const r=document.createElement('div');r.className='row';
+  for(let k=0;k<len;k++){const d=document.createElement('div');d.className='ix';d.textContent=k;r.appendChild(d);}
+  return r;
+}
+function lbl(txt){const d=document.createElement('div');d.className='lbl';d.textContent=txt;return d;}
+function track(row){const t=document.createElement('div');t.className='track';t.style.width=(Math.max(S.T.length,S.P.length)*STEP+S.P.length*STEP)+'px';t.appendChild(row);return t;}
+
+function buildStage(){
+  const st=$('#stage');st.innerHTML='';S.els={};
+  const P=S.P,T=S.T;
+  if(S.mode==='build'){
+    st.appendChild(lbl('Pattern P'));
+    st.appendChild(idxRow(P.length));
+    const a=cellRow(P);st.appendChild(track(a.r));S.els.pTop=a;
+    st.appendChild(lbl('The same pattern, slid so that its prefix sits under the suffix being tested'));
+    const b=cellRow(P);st.appendChild(track(b.r));S.els.pBot=b;
+  } else {
+    st.appendChild(lbl('Text T'));
+    st.appendChild(idxRow(T.length));
+    const a=cellRow(T);a.r.style.position='relative';
+    const tw=document.createElement('div');tw.className='track';tw.appendChild(a.r);st.appendChild(tw);S.els.t=a;
+    st.appendChild(lbl('Pattern P (slides along the text)'));
+    const b=cellRow(P);st.appendChild(track(b.r));S.els.p=b;
+  }
+  const ft=document.createElement('div');
+  st.appendChild(lbl('Failure function F: length of the longest proper prefix of P[0..i] that is also its suffix'));
+  ft.className='ftab';st.appendChild(ft);S.els.ft=ft;
+  S.els.cols=[...P].map((ch,k)=>{
+    const c=document.createElement('div');c.className='col';
+    c.innerHTML=`<div class="a">${k}</div><div class="b">${ch}</div><div class="c unk">?</div>`;
+    ft.appendChild(c);return c.querySelector('.c');
+  });
+}
+
+function clear(cells){cells.forEach(c=>c.className='cell');}
+function mark(cells,from,to,cls){for(let k=Math.max(from,0);k<=to&&k<cells.length;k++)cells[k].classList.add(cls);}
+
+function paint(){
+  const s=S.steps[S.k],P=S.P,m=P.length;
+  $('#cap').textContent=s.msg;
+  $('#scrub').value=S.k;
+  const fcols=S.els.cols;
+  if(S.mode==='build'){
+    const A=S.els.pTop.cells,B=S.els.pBot.cells;clear(A);clear(B);
+    const {i,len,kind}=s;
+    const matched=kind==='eq'?len+1:(kind==='done'?0:len);
+    const off=kind==='done'?0:i-len;
+    S.els.pBot.r.style.transform=`translateX(${off*STEP}px)`;
+    if(kind!=='init'&&kind!=='done'){
+      mark(A,i-len,i-len+matched-1,'ok');mark(B,0,matched-1,'ok');
+      const cls=kind==='cmp'?'cur':kind==='eq'?'ok':(kind==='mis'||kind==='zero')?'bad':null;
+      if(cls&&kind!=='eq'){A[i].classList.remove('ok');A[i].classList.add(cls);if(B[len]){B[len].classList.add(cls);}}
+    }
+    fcols.forEach((c,k)=>{
+      c.className='c';
+      if(k<s.known){c.textContent=s.lps[k];if((kind==='eq'||kind==='zero')&&k===i)c.classList.add('new');}
+      else{c.textContent='?';c.classList.add('unk');}
+    });
+    $('#stats').innerHTML=statBuild(s);
+  } else {
+    const A=S.els.t.cells,B=S.els.p.cells;clear(A);clear(B);
+    const {i,j,kind,off}=s;
+    const matched=kind==='eq'?j+1:kind==='found'?m:kind==='done'?0:j;
+    S.els.p.r.style.transform=`translateX(${off*STEP}px)`;
+    if(kind!=='done'){mark(A,off,off+matched-1,'ok');mark(B,0,matched-1,'ok');}
+    if(kind==='cmp'||kind==='mis'){
+      const cls=kind==='cmp'?'cur':'bad';
+      A[i].classList.remove('ok');A[i].classList.add(cls);B[j].classList.remove('ok');B[j].classList.add(cls);
+    }
+    s.hits.forEach(h=>{for(let k=h;k<h+m;k++)A[k].classList.add('hit');});
+    fcols.forEach((c,k)=>{c.className='c';c.textContent=S.lps[k];if(kind==='shift'&&s.look===k)c.classList.add('look');});
+    $('#stats').innerHTML=statSearch(s);
+  }
+  const wrap=$('.stage');
+  const target=S.mode==='search'?Math.max(0,(s.off||0)*STEP-60):0;
+  if(S.mode==='search'&&wrap.scrollWidth>wrap.clientWidth)wrap.scrollTo({left:target,behavior:'smooth'});
+}
+function stat(v,l){return `<div class="stat"><b>${v}</b><span>${l}</span></div>`;}
+function statBuild(s){
+  const m=S.P.length;
+  return stat(`${s.known}/${m}`,'entries of F known')+stat(s.len,'current border length')+stat(`O(m)`,'time to build F');
+}
+function statSearch(s){
+  const n=S.T.length;
+  return stat(s.cnt,'KMP comparisons so far')+stat(S.naive,'naive comparisons (whole run)')+stat(2*n-1,'KMP upper bound, 2n - 1')+stat(s.hits.length,'occurrences found');
+}
+
+function setSteps(){
+  S.steps=S.mode==='build'?genBuild(S.P):genSearch(S.T,S.P,S.lps);
+  S.k=0;$('#scrub').max=S.steps.length-1;
+}
+function reload(){
+  stop();
+  S.mode=S.mode;
+  buildStage();setSteps();paint();
+}
+function go(k){S.k=Math.max(0,Math.min(S.steps.length-1,k));paint();}
+function stop(){if(S.timer){clearInterval(S.timer);S.timer=null;}$('#bPlay').textContent='Play';}
+function play(){
+  if(S.timer){stop();return;}
+  if(S.k>=S.steps.length-1)S.k=0;
+  $('#bPlay').textContent='Pause';
+  const ms=1000/Number($('#spd').value)*0.9;
+  S.timer=setInterval(()=>{if(S.k>=S.steps.length-1){stop();return;}go(S.k+1);},ms);
+}
+function loadStrings(){
+  const clean=v=>v.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const T=clean($('#inT').value),P=clean($('#inP').value);
+  $('#inT').value=T;$('#inP').value=P;
+  if(!P||!T||P.length>T.length){stop();$('#cap').textContent='Enter a text and a pattern. The pattern must be no longer than the text.';return;}
+  S.T=T;S.P=P;S.lps=computeLPS(P);S.naive=naiveCount(T,P);
+  reload();
+}
+function setMode(m){
+  S.mode=m;
+  $('#tabB').setAttribute('aria-selected',m==='build');
+  $('#tabS').setAttribute('aria-selected',m==='search');
+  reload();
+}
+$('#apply').onclick=loadStrings;
+$('#tabB').onclick=()=>setMode('build');
+$('#tabS').onclick=()=>setMode('search');
+$('#bPlay').onclick=play;
+$('#bStep').onclick=()=>{stop();go(S.k+1);};
+$('#bBack').onclick=()=>{stop();go(S.k-1);};
+$('#bReset').onclick=()=>{stop();go(0);};
+$('#scrub').oninput=e=>{stop();go(Number(e.target.value));};
+$('#spd').onchange=()=>{if(S.timer){stop();play();}};
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'&&e.target.type!=='range')return;
+  if(e.key===' '){e.preventDefault();play();}
+  else if(e.key==='ArrowRight'){stop();go(S.k+1);}
+  else if(e.key==='ArrowLeft'){stop();go(S.k-1);}
+});
+loadStrings();
+})();
+</script>
+</body>
+</html>
